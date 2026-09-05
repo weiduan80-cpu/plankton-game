@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>浮游生物 · 进化大逃杀</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #04121f; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif; }
+  #stage {
+    position: relative; width: 100%; height: 100vh; height: 100dvh;
+    outline: none; cursor: crosshair; touch-action: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  canvas { display: block; }
+  #hud {
+    position: absolute; top: 10px; left: 12px; color: #bfe9ff; pointer-events: none;
+    text-shadow: 0 1px 6px rgba(0,0,0,.6); user-select: none; z-index: 2;
+  }
+  #hud .title { font-size: 11px; letter-spacing: 3px; opacity: .7; }
+  #hud .stats { margin-top: 4px; font-size: 15px; font-weight: 700; }
+  #hud .stats span { margin-right: 12px; white-space: nowrap; }
+  #hud .evo { color: #ffd166; }
+  #hud .buff { color: #4ef3e0; }
+  #tip {
+    position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+    color: rgba(191,233,255,.55); font-size: 11px; letter-spacing: 1px;
+    pointer-events: none; white-space: nowrap; z-index: 2;
+  }
+  #overlay {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; background: rgba(3,10,18,.85);
+    color: #dff4ff; text-align: center; backdrop-filter: blur(4px); z-index: 3;
+    padding: 16px; overflow-y: auto;
+  }
+  #overlay h1 { font-size: clamp(20px, 4.5vw, 36px); letter-spacing: 6px; margin-bottom: 10px; }
+  #overlay p { font-size: 13px; line-height: 1.9; opacity: .85; }
+  #overlay .key {
+    display: inline-block; border: 1px solid #3d6a8a; border-radius: 6px;
+    padding: 0 8px; margin: 0 3px; font-family: monospace; background: #0b2237;
+  }
+  .diffRow { margin-top: 16px; display: flex; gap: 12px; }
+  .diffBtn {
+    font-size: 15px; letter-spacing: 3px; cursor: pointer; font-weight: 700;
+    border: none; border-radius: 999px; padding: 11px 30px; color: #04121f;
+  }
+  .diffBtn.easy { background: #7CFFB2; } .diffBtn.easy:hover { background: #a5ffcb; }
+  .diffBtn.mid  { background: #57d3ff; } .diffBtn.mid:hover  { background: #8fe3ff; }
+  .diffBtn.hard { background: #ff6b81; } .diffBtn.hard:hover { background: #ff93a4; }
+  #againBtn {
+    margin-top: 18px; font-size: 15px; letter-spacing: 4px; cursor: pointer;
+    color: #04121f; background: #57d3ff; border: none; border-radius: 999px;
+    padding: 10px 38px; font-weight: 700; display: none;
+  }
+  #againBtn:hover { background: #8fe3ff; }
+  .legend {
+    margin-top: 18px; display: grid; grid-template-columns: repeat(2, minmax(150px, 210px));
+    gap: 6px 22px; font-size: 12.5px; text-align: left; opacity: .92;
+    background: rgba(11,34,55,.55); border: 1px solid rgba(61,106,138,.5);
+    border-radius: 12px; padding: 12px 18px;
+  }
+  .legend div { display: flex; align-items: center; gap: 8px; line-height: 1.5; }
+  .legend .ico { font-size: 17px; width: 22px; text-align: center; }
+  .c-death { color: #ff2d40; } .c-speed { color: #ffd60a; }
+  .c-life { color: #ff7ad9; } .c-shield { color: #4ef3e0; }
+  #finalScore { color: #ffd166; font-weight: 700; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="stage" tabindex="0">
+  <canvas id="game"></canvas>
+  <div id="hud">
+    <div class="title">PLANKTON EVOLUTION · 浮游进化</div>
+    <div class="stats">
+      <span>体节 <b id="segCount">0</b></span>
+      <span>吞食 <b id="eatCount">0</b></span>
+      <span class="evo">进化 Lv.<b id="evoLv">1</b></span>
+      <span>命 <b id="lifeCount">1</b></span>
+      <span>存活 <b id="aliveCount">0</b></span>
+      <span class="buff" id="buffInfo"></span>
+    </div>
+  </div>
+  <div id="tip">← ↑ ↓ → 控制方向 · 不能停下 · 咬尾巴吞噬 · 别碰别人的头</div>
+  <div id="overlay">
+    <h1 id="ovTitle">浮游生物 · 进化大逃杀</h1>
+    <p id="ovDesc">
+      <span class="key">←</span><span class="key">↑</span><span class="key">↓</span><span class="key">→</span> 控制游动方向，你无法停下<br>
+      咬住其他浮游生物的<b style="color:#7CFFB2">尾巴尖</b>，吞噬体节、长大进化<br>
+      别撞别人的<b style="color:#ff6b81">脑袋</b>；出生后有 3 秒闪烁保护期<br>
+      所有生物从慢速起步，游速会随时间越来越快
+    </p>
+    <div class="legend" id="legendBox">
+      <div><span class="ico c-death">◆</span><span><b class="c-death">死亡宝石</b> 碰到立即死亡（无敌可免疫）</span></div>
+      <div><span class="ico c-speed">⚡</span><span><b class="c-speed">加速宝石</b> 速度 +10%，持续 10 秒</span></div>
+      <div><span class="ico c-life">♥</span><span><b class="c-life">生命宝石</b> 额外一条命，死亡后从初始状态重生</span></div>
+      <div><span class="ico c-shield">★</span><span><b class="c-shield">无敌宝石</b> 10 秒内免疫一切吞噬和伤害</span></div>
+    </div>
+    <div class="diffRow" id="diffRow">
+      <button class="diffBtn easy" data-diff="easy">简 单</button>
+      <button class="diffBtn mid" data-diff="mid">中 等</button>
+      <button class="diffBtn hard" data-diff="hard">超 难</button>
+    </div>
+    <button id="againBtn">再来一次</button>
+  </div>
+</div>
+<script>
+"use strict";
+const stage = document.getElementById("stage");
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+let W = 0, H = 0;
+function resize(){
+  W = canvas.width = stage.clientWidth;
+  H = canvas.height = stage.clientHeight;
+}
+new ResizeObserver(resize).observe(stage);
+resize();
+
+const TAU = Math.PI * 2;
+const rand = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const dist2 = (a, b) => { const dx = a.x - b.x, dy = a.y - b.y; return dx*dx + dy*dy; };
+
+// ---------- 难度 ----------
+const DIFFS = {
+  easy: { label: "简单", start: 0.5, max: 1.0,  ramp: 180 },
+  mid:  { label: "中等", start: 0.5, max: 1.35, ramp: 150 },
+  hard: { label: "超难", start: 0.5, max: 1.75, ramp: 120 },
+};
+let diff = DIFFS.mid;
+let gameTime = 0;                    // 秒
+function speedScale(){
+  return lerp(diff.start, diff.max, clamp(gameTime / diff.ramp, 0, 1));
+}
+
+// ---------- 生物 ----------
+let nextId = 1;
+class Creature {
+  constructor(x, y, isPlayer, hue){
+    this.id = nextId++;
+    this.isPlayer = isPlayer;
+    this.hue = hue;
+    this.resetState(x, y);
+    this.baseSpeed = isPlayer ? 2.6 : rand(1.6, 2.3);
+    this.turnRate = isPlayer ? 0.16 : 0.05;
+    this.aiTimer = 0;
+    this.wanderAngle = this.angle;
+    this.protectT = 0;
+    this.speedBuffT = 0;
+    this.invT = 0;
+    this.lives = 1;
+    this.totalEaten = 0;
+  }
+  resetState(x, y){
+    this.segs = 3;
+    this.x = x; this.y = y;
+    this.angle = rand(0, TAU);
+    this.trail = [];
+    this.spacing = 14;
+    this.alive = true;
+    this.eaten = 0;
+    this.evo = 1;
+    this.flash = 0;
+    for (let i = 0; i < 200; i++) this.trail.push({ x, y });
+  }
+  get headR(){ return 9 + this.evo * 1.2; }
+  get segR(){ return 6.5 + this.evo * 0.8; }
+  get speed(){
+    let s = (this.baseSpeed + this.evo * 0.25) * speedScale();
+    if (this.isPlayer && this.speedBuffT > 0) s *= 1.1;
+    return s;
+  }
+  get protected(){ return this.protectT > 0 || this.invT > 0; }
+  head(){ return { x: this.x, y: this.y }; }
+  bodyPoints(){
+    const pts = [];
+    let need = this.spacing, acc = 0;
+    for (let i = 1; i < this.trail.length && pts.length < this.segs; i++){
+      const a = this.trail[i-1], b = this.trail[i];
+      acc += Math.hypot(a.x - b.x, a.y - b.y);
+      if (acc >= need){ pts.push({ x: b.x, y: b.y }); need += this.spacing; }
+    }
+    const lastP = this.trail[this.trail.length - 1];
+    while (pts.length < this.segs) pts.push({ x: lastP.x, y: lastP.y });
+    return pts;
+  }
+  grow(n = 1){
+    this.segs += n; this.eaten += n; this.totalEaten += n; this.flash = 8;
+    const need = this.evo * 4;
+    if (this.eaten >= need){
+      this.evo++; this.eaten = 0; this.segs += 2;
+      this.spacing += 0.6;
+      evoBurst(this.x, this.y, this.hue);
+    }
+  }
+  loseTail(){
+    this.segs -= 1; this.flash = 8;
+    if (this.segs < 0){
+      if (this.isPlayer) killPlayer(); else this.alive = false;
+    }
+  }
+  update(){
+    if (!this.alive) return;
+    if (this.protectT > 0) this.protectT--;
+    if (this.speedBuffT > 0) this.speedBuffT--;
+    if (this.invT > 0) this.invT--;
+    if (this.isPlayer) this.playerControl(); else this.aiControl();
+    this.x += Math.cos(this.angle) * this.speed;
+    this.y += Math.sin(this.angle) * this.speed;
+    const m = 30;
+    if (this.x < m) this.angle = 0 + rand(-0.5, 0.5);
+    if (this.x > W - m) this.angle = Math.PI + rand(-0.5, 0.5);
+    if (this.y < m) this.angle = Math.PI/2 + rand(-0.5, 0.5);
+    if (this.y > H - m) this.angle = -Math.PI/2 + rand(-0.5, 0.5);
+    this.x = clamp(this.x, 6, W - 6); this.y = clamp(this.y, 6, H - 6);
+    this.trail.unshift({ x: this.x, y: this.y });
+    const maxTrail = (this.segs + 2) * this.spacing / Math.max(this.speed, 0.6) + 30;
+    if (this.trail.length > maxTrail) this.trail.length = Math.ceil(maxTrail);
+    if (this.flash > 0) this.flash--;
+  }
+  playerControl(){
+    let tx = null;
+    if (pointer.active){
+      // 触屏/鼠标拖动：朝手指方向游
+      const dx = pointer.x - this.x, dy = pointer.y - this.y;
+      if (dx*dx + dy*dy > 18*18) tx = Math.atan2(dy, dx);
+    } else {
+      if (keys.ArrowUp) tx = -Math.PI/2;
+      if (keys.ArrowDown) tx = Math.PI/2;
+      if (keys.ArrowLeft) tx = Math.PI;
+      if (keys.ArrowRight) tx = 0;
+      if (keys.ArrowUp && keys.ArrowLeft) tx = -Math.PI*3/4;
+      if (keys.ArrowUp && keys.ArrowRight) tx = -Math.PI/4;
+      if (keys.ArrowDown && keys.ArrowLeft) tx = Math.PI*3/4;
+      if (keys.ArrowDown && keys.ArrowRight) tx = Math.PI/4;
+    }
+    if (tx !== null){
+      let d = tx - this.angle;
+      while (d > Math.PI) d -= TAU; while (d < -Math.PI) d += TAU;
+      this.angle += clamp(d, -this.turnRate, this.turnRate);
+    }
+  }
+  aiControl(){
+    this.aiTimer--;
+    if (this.aiTimer <= 0){
+      this.aiTimer = Math.floor(rand(40, 140));
+      let bestTail = null, bd = 1e9, threat = null, td = 1e9;
+      for (const c of creatures){
+        if (c === this || !c.alive) continue;
+        const h = c.head();
+        const dHead = dist2(this.head(), h);
+        if (dHead < td){ td = dHead; threat = c; }
+        const bp = c.bodyPoints();
+        if (bp.length){
+          const tail = bp[bp.length - 1];
+          const d = dist2(this.head(), tail);
+          if (d < bd){ bd = d; bestTail = tail; }
+        }
+      }
+      if (threat && td < 140*140 && !threat.protected){
+        const h = threat.head();
+        this.wanderAngle = Math.atan2(this.y - h.y, this.x - h.x) + rand(-0.4, 0.4);
+      } else if (bestTail && bd < 320*320 && Math.random() < 0.7){
+        this.wanderAngle = Math.atan2(bestTail.y - this.y, bestTail.x - this.x);
+      } else {
+        this.wanderAngle = this.angle + rand(-1.2, 1.2);
+      }
+    }
+    let d = this.wanderAngle - this.angle;
+    while (d > Math.PI) d -= TAU; while (d < -Math.PI) d += TAU;
+    this.angle += clamp(d, -this.turnRate, this.turnRate);
+  }
+  draw(){
+    if (!this.alive) return;
+    // 保护期闪烁
+    if (this.protectT > 0 && Math.floor(this.protectT / 5) % 2 === 0) return;
+    const bp = this.bodyPoints();
+    const flash = this.flash > 0;
+    for (let i = bp.length - 1; i >= 0; i--){
+      const p = bp[i];
+      const t = i / Math.max(1, bp.length - 1);
+      const r = this.segR * (1 - t * 0.45);
+      const isTail = i === bp.length - 1;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, TAU);
+      ctx.fillStyle = isTail
+        ? `hsl(${this.hue}, 95%, ${flash ? 85 : 62}%)`
+        : `hsla(${this.hue}, 80%, ${flash ? 80 : 55}%, ${0.95 - t * 0.25})`;
+      ctx.fill();
+      if (isTail){
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r + 4 + Math.sin(performance.now()/150)*1.5, 0, TAU);
+        ctx.strokeStyle = `hsla(${this.hue}, 100%, 75%, .55)`;
+        ctx.lineWidth = 1.5; ctx.stroke();
+      }
+    }
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.headR, 0, TAU);
+    ctx.fillStyle = flash ? "#fff" : `hsl(${this.hue}, 85%, ${this.isPlayer ? 68 : 48}%)`;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.headR + 3, 0, TAU);
+    ctx.strokeStyle = this.isPlayer ? "rgba(140,235,255,.9)" : "rgba(255,110,130,.75)";
+    ctx.lineWidth = this.isPlayer ? 2.5 : 1.5;
+    ctx.stroke();
+    // 无敌光环
+    if (this.invT > 0){
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.headR + 8 + Math.sin(performance.now()/120)*2, 0, TAU);
+      ctx.strokeStyle = "rgba(78,243,224,.9)";
+      ctx.lineWidth = 2.5; ctx.stroke();
+    }
+    const ex = Math.cos(this.angle), ey = Math.sin(this.angle);
+    const px = -ey, py = ex;
+    for (const s of [-1, 1]){
+      ctx.beginPath();
+      ctx.arc(this.x + ex*3 + px*4*s, this.y + ey*3 + py*4*s, 2, 0, TAU);
+      ctx.fillStyle = "#04121f"; ctx.fill();
+    }
+    if (this.isPlayer){
+      ctx.font = "11px sans-serif"; ctx.fillStyle = "rgba(190,240,255,.8)";
+      ctx.textAlign = "center";
+      ctx.fillText("YOU Lv." + this.evo, this.x, this.y - this.headR - 8);
+    }
+  }
+}
+
+// ---------- 宝石 ----------
+const GEM_TYPES = {
+  death:  { color: "#ff2d40", weight: 0.25 },
+  speed:  { color: "#ffd60a", weight: 0.25 },
+  life:   { color: "#ff7ad9", weight: 0.2 },
+  shield: { color: "#4ef3e0", weight: 0.3 },
+};
+let gems = [];
+let gemTimer = 120;
+function spawnGem(){
+  const roll = Math.random();
+  let acc = 0, type = "speed";
+  for (const [t, g] of Object.entries(GEM_TYPES)){
+    acc += g.weight;
+    if (roll <= acc){ type = t; break; }
+  }
+  gems.push({ x: rand(50, W-50), y: rand(70, H-50), type, ttl: 60*25, phase: rand(0, TAU) });
+}
+function drawGem(g){
+  const t = performance.now()/1000 + g.phase;
+  const blink = 0.55 + 0.45 * Math.sin(t * 6);
+  const s = 10;
+  ctx.save();
+  ctx.translate(g.x, g.y);
+  ctx.globalAlpha = blink;
+  ctx.fillStyle = GEM_TYPES[g.type].color;
+  ctx.strokeStyle = GEM_TYPES[g.type].color;
+  // 光晕
+  ctx.beginPath(); ctx.arc(0, 0, s + 7 + Math.sin(t*4)*2, 0, TAU);
+  ctx.globalAlpha = blink * 0.25; ctx.fill();
+  ctx.globalAlpha = blink;
+  if (g.type === "death"){
+    // 暗红菱形 + 叉
+    ctx.rotate(Math.sin(t*2)*0.2);
+    ctx.beginPath();
+    ctx.moveTo(0, -s); ctx.lineTo(s*0.8, 0); ctx.lineTo(0, s); ctx.lineTo(-s*0.8, 0);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = "#3a0208"; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-3.5, -3.5); ctx.lineTo(3.5, 3.5);
+    ctx.moveTo(3.5, -3.5); ctx.lineTo(-3.5, 3.5);
+    ctx.stroke();
+  } else if (g.type === "speed"){
+    // 黄色闪电
+    ctx.beginPath();
+    ctx.moveTo(0.15*s, -s); ctx.lineTo(0.6*s, -0.15*s); ctx.lineTo(0.15*s, -0.05*s);
+    ctx.lineTo(0.45*s, s); ctx.lineTo(-0.5*s, 0.12*s); ctx.lineTo(-0.05*s, 0);
+    ctx.lineTo(-0.4*s, -s); ctx.closePath(); ctx.fill();
+  } else if (g.type === "life"){
+    // 粉色爱心
+    ctx.beginPath();
+    ctx.moveTo(0, 0.75*s);
+    ctx.bezierCurveTo(-1.1*s, -0.1*s, -0.5*s, -1.05*s, 0, -0.45*s);
+    ctx.bezierCurveTo(0.5*s, -1.05*s, 1.1*s, -0.1*s, 0, 0.75*s);
+    ctx.closePath(); ctx.fill();
+  } else {
+    // 青色五角星
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++){
+      const r = i % 2 === 0 ? s : s * 0.45;
+      const a = -Math.PI/2 + i * Math.PI/5 + t*0.8;
+      const x = Math.cos(a)*r, y = Math.sin(a)*r;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+function applyGem(g){
+  eatBurst(g.x, g.y, 50);
+  if (g.type === "death"){
+    if (player.invT <= 0){ killPlayer(); return; }
+  } else if (g.type === "speed"){
+    player.speedBuffT = 600;              // 10 秒
+  } else if (g.type === "life"){
+    player.lives += 1;
+  } else if (g.type === "shield"){
+    player.invT = 600;                    // 10 秒
+    player.protectT = 0;
+  }
+}
+
+// ---------- 粒子 ----------
+const particles = [];
+function evoBurst(x, y, hue){
+  for (let i = 0; i < 26; i++){
+    const a = rand(0, TAU), s = rand(1, 4);
+    particles.push({ x, y, vx: Math.cos(a)*s, vy: Math.sin(a)*s, life: rand(25, 50), hue });
+  }
+}
+function eatBurst(x, y, hue){
+  for (let i = 0; i < 10; i++){
+    const a = rand(0, TAU), s = rand(0.5, 2.5);
+    particles.push({ x, y, vx: Math.cos(a)*s, vy: Math.sin(a)*s, life: rand(12, 26), hue });
+  }
+}
+
+// ---------- 游戏状态 ----------
+const keys = {};
+let creatures = [];
+let player = null;
+let running = false;
+let floaters = [];
+
+function killPlayer(){
+  if (player.invT > 0) return;
+  if (player.lives > 1){
+    player.lives -= 1;
+    evoBurst(player.x, player.y, 190);
+    player.resetState(W/2, H/2);          // 从初始状态重生
+    player.protectT = 180;                // 3 秒保护
+    player.speedBuffT = 0; player.invT = 0;
+  } else {
+    player.alive = false;
+  }
+}
+
+function initWorld(){
+  creatures = []; particles.length = 0; gems = []; nextId = 1;
+  gameTime = 0; gemTimer = 150;
+  player = new Creature(W/2, H/2, true, 190);
+  player.protectT = 180;                  // 出生 3 秒闪烁保护
+  creatures.push(player);
+  const n = Math.floor(rand(10, 16));
+  for (let i = 0; i < n; i++){
+    let x, y, tries = 0;
+    do { x = rand(60, W-60); y = rand(60, H-60); tries++; }
+    while (Math.hypot(x - W/2, y - H/2) < 180 && tries < 40);
+    creatures.push(new Creature(x, y, false, Math.floor(rand(0, 360))));
+  }
+  floaters = [];
+  for (let i = 0; i < 70; i++)
+    floaters.push({ x: rand(0, W), y: rand(0, H), r: rand(1, 2.6), vx: rand(-0.2, 0.2), vy: rand(-0.15, 0.15), o: rand(0.08, 0.3) });
+}
+
+function respawnEnemy(){
+  const edge = Math.floor(rand(0, 4));
+  const x = edge === 0 ? 30 : edge === 1 ? W - 30 : rand(30, W-30);
+  const y = edge < 2 ? rand(30, H-30) : (edge === 2 ? 30 : H - 30);
+  creatures.push(new Creature(x, y, false, Math.floor(rand(0, 360))));
+}
+
+// ---------- 碰撞 ----------
+function handleCollisions(){
+  for (const a of creatures){
+    if (!a.alive) continue;
+    const ah = a.head();
+    for (const b of creatures){
+      if (a === b || !b.alive) continue;
+      const bh = b.head();
+      // 头碰头
+      if (dist2(ah, bh) < (a.headR + b.headR) ** 2){
+        if (!a.protected){
+          if (a.isPlayer){
+            killPlayer();
+            if (player.alive) continue;   // 重生后跳过本帧后续判定
+          } else {
+            a.alive = false;
+          }
+          eatBurst(ah.x, ah.y, b.hue);
+          b.grow(1);
+        }
+        continue;
+      }
+      // 咬尾巴尖
+      if (b.protected) continue;          // 保护期内尾巴不可被咬
+      const bp = b.bodyPoints();
+      if (bp.length){
+        const tail = bp[bp.length - 1];
+        const rr = a.headR + b.segR * 0.6 + 3;
+        if (dist2(ah, tail) < rr * rr){
+          eatBurst(tail.x, tail.y, b.hue);
+          a.grow(1);
+          b.loseTail();
+          if (!b.alive && !b.isPlayer) eatBurst(bh.x, bh.y, b.hue);
+        }
+      }
+    }
+  }
+  creatures = creatures.filter(c => c.alive);
+}
+
+// ---------- 主循环 ----------
+function loop(){
+  requestAnimationFrame(loop);
+  if (W === 0) resize();
+  const g = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W, H)*0.75);
+  g.addColorStop(0, "#08233b"); g.addColorStop(1, "#030c16");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  for (const f of floaters){
+    f.x += f.vx; f.y += f.vy;
+    if (f.x < 0) f.x = W; if (f.x > W) f.x = 0;
+    if (f.y < 0) f.y = H; if (f.y > H) f.y = 0;
+    ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, TAU);
+    ctx.fillStyle = `rgba(140,210,255,${f.o})`; ctx.fill();
+  }
+  if (running){
+    gameTime += 1/60;
+    for (const c of creatures) c.update();
+    handleCollisions();
+    const enemies = creatures.filter(c => !c.isPlayer).length;
+    if (enemies < 8 && Math.random() < 0.02) respawnEnemy();
+    // 宝石生成/过期
+    gemTimer--;
+    if (gemTimer <= 0 && gems.length < 4){ spawnGem(); gemTimer = Math.floor(rand(240, 480)); }
+    for (let i = gems.length - 1; i >= 0; i--){
+      if (--gems[i].ttl <= 0) gems.splice(i, 1);
+    }
+    // 玩家拾取宝石
+    if (player.alive){
+      for (let i = gems.length - 1; i >= 0; i--){
+        const g = gems[i];
+        const rr = player.headR + 12;
+        if (dist2(player.head(), g) < rr * rr){
+          gems.splice(i, 1);
+          applyGem(g);
+          if (!player.alive) break;
+        }
+      }
+    }
+  }
+  for (const g2 of gems) drawGem(g2);
+  for (const c of creatures) c.draw();
+  for (let i = particles.length - 1; i >= 0; i--){
+    const p = particles[i];
+    p.x += p.vx; p.y += p.vy; p.vx *= 0.96; p.vy *= 0.96; p.life--;
+    if (p.life <= 0){ particles.splice(i, 1); continue; }
+    ctx.beginPath(); ctx.arc(p.x, p.y, 2.2, 0, TAU);
+    ctx.fillStyle = `hsla(${p.hue}, 95%, 70%, ${p.life/40})`; ctx.fill();
+  }
+  if (running && player){
+    document.getElementById("segCount").textContent = Math.max(0, player.segs);
+    document.getElementById("eatCount").textContent = player.totalEaten;
+    document.getElementById("evoLv").textContent = player.evo;
+    document.getElementById("lifeCount").textContent = player.lives;
+    document.getElementById("aliveCount").textContent = creatures.length;
+    const buffs = [];
+    if (player.speedBuffT > 0) buffs.push("⚡" + Math.ceil(player.speedBuffT/60) + "s");
+    if (player.invT > 0) buffs.push("★无敌" + Math.ceil(player.invT/60) + "s");
+    else if (player.protectT > 0) buffs.push("保护" + Math.ceil(player.protectT/60) + "s");
+    document.getElementById("buffInfo").textContent = buffs.join(" ");
+    if (!player.alive){
+      running = false;
+      const ov = document.getElementById("overlay");
+      ov.classList.remove("hidden");
+      document.getElementById("ovTitle").textContent = "你被吞噬了";
+      document.getElementById("ovDesc").innerHTML =
+        `难度 ${diff.label} · 最终进化 <span id="finalScore">Lv.${player.evo}</span> · 总计吞食 <span id="finalScore">${player.totalEaten}</span> · 存活 ${Math.floor(gameTime)} 秒`;
+      document.getElementById("diffRow").classList.add("hidden");
+      document.getElementById("legendBox").classList.add("hidden");
+      const again = document.getElementById("againBtn");
+      again.style.display = "inline-block";
+      again.textContent = "再来一次";
+    }
+  }
+}
+
+// ---------- 输入 ----------
+addEventListener("keydown", e => {
+  if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
+  keys[e.key] = true;
+  if (e.key === " " && !running && diffChosen) startGame();
+});
+addEventListener("keyup", e => { keys[e.key] = false; });
+
+// 触屏 / 鼠标拖动控制
+const pointer = { active: false, x: 0, y: 0 };
+function updatePointer(e){
+  const r = stage.getBoundingClientRect();
+  pointer.x = e.clientX - r.left;
+  pointer.y = e.clientY - r.top;
+}
+stage.addEventListener("pointerdown", e => {
+  stage.focus();
+  if (e.target.closest("#overlay")) return;   // 让按钮正常点击
+  pointer.active = true;
+  updatePointer(e);
+});
+stage.addEventListener("pointermove", e => { if (pointer.active) updatePointer(e); });
+addEventListener("pointerup", () => { pointer.active = false; });
+addEventListener("pointercancel", () => { pointer.active = false; });
+
+// 根据设备显示提示
+const isTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+if (isTouch){
+  document.getElementById("tip").textContent = "手指按住屏幕拖动 · 浮游生物朝手指方向游";
+  const desc = document.getElementById("ovDesc");
+  desc.innerHTML = desc.innerHTML.replace(
+    /<span class="key">←<\/span><span class="key">↑<\/span><span class="key">↓<\/span><span class="key">→<\/span> 控制游动方向/,
+    "手指按住屏幕拖动来控制游动方向"
+  );
+}
+
+let diffChosen = false;
+function startGame(){
+  document.getElementById("overlay").classList.add("hidden");
+  resize();
+  initWorld();
+  running = true;
+  stage.focus();
+}
+document.querySelectorAll(".diffBtn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    diff = DIFFS[btn.dataset.diff];
+    diffChosen = true;
+    startGame();
+  });
+});
+document.getElementById("againBtn").addEventListener("click", () => {
+  // 重开时回到难度选择
+  document.getElementById("diffRow").classList.remove("hidden");
+  document.getElementById("legendBox").classList.remove("hidden");
+  document.getElementById("againBtn").style.display = "none";
+  document.getElementById("ovTitle").textContent = "浮游生物 · 进化大逃杀";
+  startGame();
+});
+initWorld();       // 背景氛围
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
