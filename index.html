@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>浮游生物 · 进化大逃杀</title>
+<!-- v1.2 中国龙主角 + 局数与最高分排名 -->
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 100%; height: 100%; overflow: hidden; background: #04121f; }
@@ -80,6 +81,8 @@
       <span class="evo">进化 Lv.<b id="evoLv">1</b></span>
       <span>命 <b id="lifeCount">1</b></span>
       <span>存活 <b id="aliveCount">0</b></span>
+      <span>第 <b id="roundCount">1</b> 局</span>
+      <span class="evo">最高 <b id="bestScore">0</b></span>
       <span class="buff" id="buffInfo"></span>
     </div>
   </div>
@@ -225,9 +228,9 @@ class Creature {
   playerControl(){
     let tx = null;
     if (pointer.active){
-      // 触屏/鼠标拖动：朝手指方向游
-      const dx = pointer.x - this.x, dy = pointer.y - this.y;
-      if (dx*dx + dy*dy > 18*18) tx = Math.atan2(dy, dx);
+      // 虚拟摇杆：方向 = 手指相对按下点的偏移，不会滑到手指底下
+      const dx = pointer.x - pointer.ax, dy = pointer.y - pointer.ay;
+      if (dx*dx + dy*dy > 22*22) tx = Math.atan2(dy, dx);
     } else {
       if (keys.ArrowUp) tx = -Math.PI/2;
       if (keys.ArrowDown) tx = Math.PI/2;
@@ -291,6 +294,10 @@ class Creature {
         ? `hsl(${this.hue}, 95%, ${flash ? 85 : 62}%)`
         : `hsla(${this.hue}, 80%, ${flash ? 80 : 55}%, ${0.95 - t * 0.25})`;
       ctx.fill();
+      if (this.isPlayer){
+        ctx.strokeStyle = "rgba(255,240,180,.8)";
+        ctx.lineWidth = 1.5; ctx.stroke();
+      }
       if (isTail){
         ctx.beginPath();
         ctx.arc(p.x, p.y, r + 4 + Math.sin(performance.now()/150)*1.5, 0, TAU);
@@ -298,15 +305,19 @@ class Creature {
         ctx.lineWidth = 1.5; ctx.stroke();
       }
     }
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.headR, 0, TAU);
-    ctx.fillStyle = flash ? "#fff" : `hsl(${this.hue}, 85%, ${this.isPlayer ? 68 : 48}%)`;
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.headR + 3, 0, TAU);
-    ctx.strokeStyle = this.isPlayer ? "rgba(140,235,255,.9)" : "rgba(255,110,130,.75)";
-    ctx.lineWidth = this.isPlayer ? 2.5 : 1.5;
-    ctx.stroke();
+    if (this.isPlayer){
+      drawDragonHead(this, flash);
+    } else {
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.headR, 0, TAU);
+      ctx.fillStyle = flash ? "#fff" : `hsl(${this.hue}, 85%, 48%)`;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.headR + 3, 0, TAU);
+      ctx.strokeStyle = "rgba(255,110,130,.75)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
     // 无敌光环
     if (this.invT > 0){
       ctx.beginPath();
@@ -316,10 +327,12 @@ class Creature {
     }
     const ex = Math.cos(this.angle), ey = Math.sin(this.angle);
     const px = -ey, py = ex;
-    for (const s of [-1, 1]){
-      ctx.beginPath();
-      ctx.arc(this.x + ex*3 + px*4*s, this.y + ey*3 + py*4*s, 2, 0, TAU);
-      ctx.fillStyle = "#04121f"; ctx.fill();
+    if (!this.isPlayer){
+      for (const s of [-1, 1]){
+        ctx.beginPath();
+        ctx.arc(this.x + ex*3 + px*4*s, this.y + ey*3 + py*4*s, 2, 0, TAU);
+        ctx.fillStyle = "#04121f"; ctx.fill();
+      }
     }
     if (this.isPlayer){
       ctx.font = "11px sans-serif"; ctx.fillStyle = "rgba(190,240,255,.8)";
@@ -327,6 +340,100 @@ class Creature {
       ctx.fillText("YOU Lv." + this.evo, this.x, this.y - this.headR - 8);
     }
   }
+}
+
+// ---------- 主角：中国龙头 ----------
+function drawDragonHead(c, flash){
+  const r = c.headR;
+  const t = performance.now() / 300;
+  ctx.save();
+  ctx.translate(c.x, c.y);
+  ctx.rotate(c.angle);
+  // 周边漫射金光
+  const glowR = r * 3.2 + Math.sin(t * 2) * 2;
+  const g = ctx.createRadialGradient(0, 0, r * 0.5, 0, 0, glowR);
+  g.addColorStop(0, "rgba(255,215,0,.45)");
+  g.addColorStop(0.6, "rgba(255,190,40,.18)");
+  g.addColorStop(1, "rgba(255,190,40,0)");
+  ctx.beginPath(); ctx.arc(0, 0, glowR, 0, TAU);
+  ctx.fillStyle = g; ctx.fill();
+  const gold = flash ? "#fff" : "#ffd60a";
+  const dark = flash ? "#fff" : "#d4a017";
+  // 鬃毛（向后飘的鳍）
+  ctx.fillStyle = flash ? "#fff" : "rgba(255,140,0,.85)";
+  for (const s of [-1, 1]){
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.4, s * r * 0.5);
+    ctx.quadraticCurveTo(-r * 1.6, s * (r * 1.1 + Math.sin(t + s) * 2), -r * 2.1, s * r * 0.4);
+    ctx.quadraticCurveTo(-r * 1.2, s * r * 0.5, -r * 0.6, s * r * 0.15);
+    ctx.closePath(); ctx.fill();
+  }
+  // 龙角（鹿角状，向后上方）
+  ctx.strokeStyle = dark; ctx.lineWidth = r * 0.22; ctx.lineCap = "round";
+  for (const s of [-1, 1]){
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.2, s * r * 0.55);
+    ctx.lineTo(-r * 0.9, s * r * 1.15);
+    ctx.stroke();
+    ctx.lineWidth = r * 0.15;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.55, s * r * 0.85);
+    ctx.lineTo(-r * 0.75, s * r * 1.45);
+    ctx.stroke();
+    ctx.lineWidth = r * 0.22;
+  }
+  // 头部主体（椭圆吻部朝前 +x）
+  ctx.fillStyle = gold;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r * 1.15, r * 0.85, 0, 0, TAU);
+  ctx.fill();
+  // 吻部前端（略尖的嘴）
+  ctx.beginPath();
+  ctx.moveTo(r * 0.5, -r * 0.55);
+  ctx.quadraticCurveTo(r * 1.75, -r * 0.3, r * 1.8, 0);
+  ctx.quadraticCurveTo(r * 1.75, r * 0.3, r * 0.5, r * 0.55);
+  ctx.closePath(); ctx.fill();
+  // 鼻孔
+  ctx.fillStyle = "#7a5200";
+  for (const s of [-1, 1]){
+    ctx.beginPath();
+    ctx.arc(r * 1.35, s * r * 0.18, r * 0.09, 0, TAU);
+    ctx.fill();
+  }
+  // 眼睛（威风的丹凤眼）
+  for (const s of [-1, 1]){
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.ellipse(r * 0.35, s * r * 0.42, r * 0.28, r * 0.17, s * 0.35, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = "#c0392b";
+    ctx.beginPath();
+    ctx.arc(r * 0.42, s * r * 0.42, r * 0.1, 0, TAU);
+    ctx.fill();
+    // 眉毛
+    ctx.strokeStyle = dark; ctx.lineWidth = r * 0.1;
+    ctx.beginPath();
+    ctx.moveTo(r * 0.05, s * r * 0.62);
+    ctx.lineTo(r * 0.6, s * r * 0.3);
+    ctx.stroke();
+  }
+  // 龙须（两条长须向后飘动）
+  ctx.strokeStyle = flash ? "#fff" : "#ffe98a";
+  ctx.lineWidth = r * 0.09;
+  for (const s of [-1, 1]){
+    ctx.beginPath();
+    ctx.moveTo(r * 1.5, s * r * 0.3);
+    ctx.quadraticCurveTo(
+      r * 0.6, s * (r * 1.3 + Math.sin(t * 1.5 + s) * 3),
+      -r * 1.5, s * (r * 1.7 + Math.cos(t + s) * 4)
+    );
+    ctx.stroke();
+  }
+  // 轮廓
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r * 1.15, r * 0.85, 0, 0, TAU);
+  ctx.strokeStyle = "rgba(255,240,180,.95)"; ctx.lineWidth = 2; ctx.stroke();
+  ctx.restore();
 }
 
 // ---------- 宝石 ----------
@@ -432,6 +539,8 @@ let creatures = [];
 let player = null;
 let running = false;
 let floaters = [];
+let roundNum = parseInt(localStorage.getItem("plankton_rounds") || "0", 10);
+let bestScores = JSON.parse(localStorage.getItem("plankton_best") || "[]");  // [{score, evo, diff}]
 
 function killPlayer(){
   if (player.invT > 0) return;
@@ -449,7 +558,7 @@ function killPlayer(){
 function initWorld(){
   creatures = []; particles.length = 0; gems = []; nextId = 1;
   gameTime = 0; gemTimer = 150;
-  player = new Creature(W/2, H/2, true, 190);
+  player = new Creature(W/2, H/2, true, 50);   // 亮黄金色
   player.protectT = 180;                  // 出生 3 秒闪烁保护
   creatures.push(player);
   const n = Math.floor(rand(10, 16));
@@ -559,12 +668,29 @@ function loop(){
     ctx.beginPath(); ctx.arc(p.x, p.y, 2.2, 0, TAU);
     ctx.fillStyle = `hsla(${p.hue}, 95%, 70%, ${p.life/40})`; ctx.fill();
   }
+  // 虚拟摇杆可视化
+  if (pointer.active && running){
+    const dx = pointer.x - pointer.ax, dy = pointer.y - pointer.ay;
+    const d = Math.hypot(dx, dy);
+    const R = 46;
+    const k = d > R ? R / d : 1;
+    const kx = pointer.ax + dx * k, ky = pointer.ay + dy * k;
+    ctx.beginPath(); ctx.arc(pointer.ax, pointer.ay, R, 0, TAU);
+    ctx.strokeStyle = "rgba(140,235,255,.35)"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.beginPath(); ctx.arc(kx, ky, 18, 0, TAU);
+    ctx.fillStyle = "rgba(140,235,255,.4)"; ctx.fill();
+    ctx.beginPath(); ctx.arc(kx, ky, 18, 0, TAU);
+    ctx.strokeStyle = "rgba(140,235,255,.7)"; ctx.lineWidth = 1.5; ctx.stroke();
+  }
   if (running && player){
     document.getElementById("segCount").textContent = Math.max(0, player.segs);
     document.getElementById("eatCount").textContent = player.totalEaten;
     document.getElementById("evoLv").textContent = player.evo;
     document.getElementById("lifeCount").textContent = player.lives;
     document.getElementById("aliveCount").textContent = creatures.length;
+    document.getElementById("roundCount").textContent = roundNum;
+    document.getElementById("bestScore").textContent =
+      Math.max(bestScores.length ? bestScores[0].score : 0, player.totalEaten);
     const buffs = [];
     if (player.speedBuffT > 0) buffs.push("⚡" + Math.ceil(player.speedBuffT/60) + "s");
     if (player.invT > 0) buffs.push("★无敌" + Math.ceil(player.invT/60) + "s");
@@ -572,11 +698,23 @@ function loop(){
     document.getElementById("buffInfo").textContent = buffs.join(" ");
     if (!player.alive){
       running = false;
+      // 记录最高分排名（前 5 名）
+      const entry = { score: player.totalEaten, evo: player.evo, diff: diff.label, time: Math.floor(gameTime) };
+      bestScores.push(entry);
+      bestScores.sort((a, b) => b.score - a.score || b.evo - a.evo);
+      bestScores = bestScores.slice(0, 5);
+      localStorage.setItem("plankton_best", JSON.stringify(bestScores));
+      const rank = bestScores.indexOf(entry) + 1;
       const ov = document.getElementById("overlay");
       ov.classList.remove("hidden");
       document.getElementById("ovTitle").textContent = "你被吞噬了";
+      let rankHtml = `<br><br>🏆 最高分排名（第 ${roundNum} 局）<br>`;
+      bestScores.forEach((s, i) => {
+        const mark = (s === entry) ? ' style="color:#ffd60a;font-weight:700"' : "";
+        rankHtml += `<span${mark}>${i + 1}. 吞食 ${s.score} · Lv.${s.evo} · ${s.diff}${s === entry ? " ← 本局" : ""}</span><br>`;
+      });
       document.getElementById("ovDesc").innerHTML =
-        `难度 ${diff.label} · 最终进化 <span id="finalScore">Lv.${player.evo}</span> · 总计吞食 <span id="finalScore">${player.totalEaten}</span> · 存活 ${Math.floor(gameTime)} 秒`;
+        `难度 ${diff.label} · 最终进化 <span id="finalScore">Lv.${player.evo}</span> · 总计吞食 <span id="finalScore">${player.totalEaten}</span> · 存活 ${Math.floor(gameTime)} 秒 · 排名 第${rank}名` + rankHtml;
       document.getElementById("diffRow").classList.add("hidden");
       document.getElementById("legendBox").classList.add("hidden");
       const again = document.getElementById("againBtn");
@@ -594,8 +732,8 @@ addEventListener("keydown", e => {
 });
 addEventListener("keyup", e => { keys[e.key] = false; });
 
-// 触屏 / 鼠标拖动控制
-const pointer = { active: false, x: 0, y: 0 };
+// 触屏 / 鼠标拖动控制（虚拟摇杆）
+const pointer = { active: false, ax: 0, ay: 0, x: 0, y: 0 };
 function updatePointer(e){
   const r = stage.getBoundingClientRect();
   pointer.x = e.clientX - r.left;
@@ -606,6 +744,8 @@ stage.addEventListener("pointerdown", e => {
   if (e.target.closest("#overlay")) return;   // 让按钮正常点击
   pointer.active = true;
   updatePointer(e);
+  pointer.ax = pointer.x;                     // 按下点 = 摇杆中心
+  pointer.ay = pointer.y;
 });
 stage.addEventListener("pointermove", e => { if (pointer.active) updatePointer(e); });
 addEventListener("pointerup", () => { pointer.active = false; });
@@ -614,11 +754,11 @@ addEventListener("pointercancel", () => { pointer.active = false; });
 // 根据设备显示提示
 const isTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0;
 if (isTouch){
-  document.getElementById("tip").textContent = "手指按住屏幕拖动 · 浮游生物朝手指方向游";
+  document.getElementById("tip").textContent = "按住屏幕出现摇杆 · 朝偏移方向游动 · 手指不会挡住你";
   const desc = document.getElementById("ovDesc");
   desc.innerHTML = desc.innerHTML.replace(
     /<span class="key">←<\/span><span class="key">↑<\/span><span class="key">↓<\/span><span class="key">→<\/span> 控制游动方向/,
-    "手指按住屏幕拖动来控制游动方向"
+    "手指按住屏幕任意位置出现虚拟摇杆，朝偏移方向游动"
   );
 }
 
@@ -629,6 +769,10 @@ function startGame(){
   initWorld();
   running = true;
   stage.focus();
+  roundNum++;
+  localStorage.setItem("plankton_rounds", String(roundNum));
+  document.getElementById("roundCount").textContent = roundNum;
+  document.getElementById("bestScore").textContent = bestScores.length ? bestScores[0].score : 0;
 }
 document.querySelectorAll(".diffBtn").forEach(btn => {
   btn.addEventListener("click", () => {
